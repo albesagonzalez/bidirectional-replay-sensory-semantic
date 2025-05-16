@@ -75,7 +75,7 @@ def test_network(net, input_params, print_rate=1):
   return input, input_episodes, input_latents, net
 
 
-def blokced_interleave(net_params, input_params, latent_specs, training='blocked'):
+def blokced_interleave(network_parameters, recording_parameters, input_params, latent_specs, training='blocked', seed=42):
 
     
     if training=='interleaved':
@@ -235,13 +235,29 @@ recording_parameters["connections"] = []
 recording_parameters["rate_connectivity"] = np.inf
 
 
+input_params = {}
+input_params["num_days"] = 1
+input_params["day_length"] = 40
+input_params["mean_duration"] = 5
+input_params["fixed_duration"] = True
+input_params["num_swaps"] = 8
+
+
+latent_specs = {}
+latent_specs["num"] = 2
+latent_specs["total_sizes"] = [50, 50]
+latent_specs["act_sizes"] = [10, 10]
+latent_specs["dims"] = [5, 5]
+latent_specs["prob_list"] = [1/25 for i in range(5) for j in range(5)]
+
+
 num_cpu = 20
 trainings = ["interleaved", "blocked"]
 num_seeds = 5
 seeds = np.arange(num_seeds)
 
 
-experiment_params = [(network_parameters, recording_parameters, training, seed) for training in trainings for seed in seeds]
+experiment_params = [(network_parameters, recording_parameters, input_params, latent_specs, training, seed) for training in trainings for seed in seeds]
 pool = multiprocessing.Pool(processes=num_cpu)
 
 results_list = pool.map(blokced_interleave, experiment_params)
