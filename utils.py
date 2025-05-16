@@ -520,3 +520,214 @@ def get_distribution_num_overlaps(K, N, num_samples):
     common_values = set_a.intersection(set_b)
     overlaps.append(len(common_values))
   return overlaps
+
+
+
+
+def get_selectivity(network, input_latents, input_episodes, input_params, latent_specs):
+    X_ctx = torch.stack(network.activity_recordings["ctx"], dim=0)[network.awake_indices][-100*input_params["day_length"]:]
+    X_mtl = torch.stack(network.activity_recordings["mtl"], dim=0)[network.awake_indices][-100*input_params["day_length"]:]
+    X_mtl_dense = torch.stack(network.activity_recordings["mtl_dense"], dim=0)[network.awake_indices][-100*input_params["day_length"]:]
+    X_mtl_sparse = torch.stack(network.activity_recordings["mtl_sparse"], dim=0)[network.awake_indices][-100*input_params["day_length"]:]
+
+    X_latent_A = F.one_hot(input_latents[-100:, :, 0].long(), num_classes=latent_specs["dims"][0])
+    X_latent_B = F.one_hot(input_latents[-100:, :, 1].long(), num_classes=latent_specs["dims"][1])
+    X_latent_AB = torch.cat((X_latent_A, X_latent_B), axis=2)
+    X_latent_episode = F.one_hot(input_episodes[-100:].long(), num_classes=np.prod(latent_specs["dims"]))
+
+
+    # Flatten time
+    days, day_length, num_latents = X_latent_AB.shape
+    _, num_neurons_ctx = X_ctx.shape
+    _, num_neurons_mtl = X_mtl.shape
+    _, num_neurons_mtl_dense = X_mtl_dense.shape
+    _, num_neurons_mtl_sparse = X_mtl_sparse.shape
+
+    latents_flat = X_latent_AB.reshape(-1, num_latents).float()    # shape: (days * day_length, num_latents)
+    neurons_ctx_flat = X_ctx.reshape(-1, num_neurons_ctx).float()    # shape: (days * day_length, num_neurons)
+    neurons_mtl_flat = X_mtl.reshape(-1, num_neurons_mtl).float()    # shape: (days * day_length, num_neurons)
+    neurons_mtl_dense_flat = X_mtl_dense.reshape(-1, num_neurons_mtl_dense).float()    # shape: (days * day_length, num_neurons)
+    neurons_mtl_sparse_flat = X_mtl_sparse.reshape(-1, num_neurons_mtl_sparse).float()    # shape: (days * day_length, num_neurons)
+
+    # Normalize (zero mean, unit variance)
+    latents_norm = (latents_flat - latents_flat.mean(dim=0)) / latents_flat.std(dim=0)
+    neurons_ctx_norm = (neurons_ctx_flat - neurons_ctx_flat.mean(dim=0)) / neurons_ctx_flat.std(dim=0)
+    neurons_mtl_norm = (neurons_mtl_flat - neurons_mtl_flat.mean(dim=0)) / neurons_mtl_flat.std(dim=0)
+    neurons_mtl_dense_norm = (neurons_mtl_dense_flat - neurons_mtl_dense_flat.mean(dim=0)) / neurons_mtl_dense_flat.std(dim=0)
+    neurons_mtl_sparse_norm = (neurons_mtl_sparse_flat - neurons_mtl_sparse_flat.mean(dim=0)) / neurons_mtl_sparse_flat.std(dim=0)
+
+
+
+    # Compute correlation (selectivity): (num_neurons, num_latents)
+    print( neurons_ctx_norm.T.shape, latents_norm.shape)
+    selectivity_ctx = neurons_ctx_norm.T @ latents_norm / latents_norm.shape[0]
+    selectivity_mtl = neurons_mtl_norm.T @ latents_norm / latents_norm.shape[0]
+    selectivity_mtl_dense = neurons_mtl_dense_norm.T @ latents_norm / latents_norm.shape[0]
+    selectivity_mtl_sparse = neurons_mtl_sparse_norm.T @ latents_norm / latents_norm.shape[0]
+
+
+
+    threshold = 0.7
+    num_neurons_ctx, num_latents = selectivity_ctx.shape
+
+    # Identify the latent with the highest selectivity per neuron
+    max_selectivity, max_latent_idx = selectivity_ctx.max(dim=1)
+
+    # Assign neurons to latents if selectivity >= threshold, else assign -1 (non-selective)
+    assigned_latents = torch.where(max_selectivity >= threshold, max_latent_idx, -1)
+
+    # Generate reordered indices
+    ordered_indices = []
+
+    # Iterate over each latent to collect selective neurons
+    for latent in range(num_latents):
+        latent_neurons = (assigned_latents == latent).nonzero(as_tuple=True)[0]
+        ordered_indices.append(latent_neurons)
+
+    # Add non-selective neurons at the end
+    non_selective_neurons = (assigned_latents == -1).nonzero(as_tuple=True)[0]
+    ordered_indices.append(non_selective_neurons)
+
+    # Concatenate indices into a single ordering
+    ordered_indices_ctx = torch.cat(ordered_indices)
+
+
+
+    threshold = 0.7
+    num_neurons, num_latents = selectivity_mtl.shape
+
+    # Identify the latent with the highest selectivity per neuron
+    max_selectivity, max_latent_idx = selectivity_mtl.max(dim=1)
+
+    # Assign neurons to latents if selectivity >= threshold, else assign -1 (non-selective)
+    assigned_latents = torch.where(max_selectivity >= threshold, max_latent_idx, -1)
+
+    # Generate reordered indices
+    ordered_indices = []
+
+    # Iterate over each latent to collect selective neurons
+    for latent in range(num_latents):
+        latent_neurons = (assigned_latents == latent).nonzero(as_tuple=True)[0]
+        ordered_indices.append(latent_neurons)
+
+    # Add non-selective neurons at the end
+    non_selective_neurons = (assigned_latents == -1).nonzero(as_tuple=True)[0]
+    ordered_indices.append(non_selective_neurons)
+
+    # Concatenate indices into a single ordering
+    ordered_indices_mtl = torch.cat(ordered_indices)
+
+
+    threshold = 0.7
+    num_neurons_mtl_dense, num_latents = selectivity_mtl_dense.shape
+
+    # Identify the latent with the highest selectivity per neuron
+    max_selectivity, max_latent_idx = selectivity_mtl_dense.max(dim=1)
+
+    # Assign neurons to latents if selectivity >= threshold, else assign -1 (non-selective)
+    assigned_latents = torch.where(max_selectivity >= threshold, max_latent_idx, -1)
+
+    # Generate reordered indices
+    ordered_indices = []
+
+    # Iterate over each latent to collect selective neurons
+    for latent in range(num_latents):
+        latent_neurons = (assigned_latents == latent).nonzero(as_tuple=True)[0]
+        ordered_indices.append(latent_neurons)
+
+    # Add non-selective neurons at the end
+    non_selective_neurons = (assigned_latents == -1).nonzero(as_tuple=True)[0]
+    ordered_indices.append(non_selective_neurons)
+
+    # Concatenate indices into a single ordering
+    ordered_indices_mtl_dense = torch.cat(ordered_indices)
+
+    threshold = 0.7
+    num_neurons_mtl_sparse, num_latents = selectivity_mtl_sparse.shape
+
+    # Identify the latent with the highest selectivity per neuron
+    max_selectivity, max_latent_idx = selectivity_mtl_sparse.max(dim=1)
+
+    # Assign neurons to latents if selectivity >= threshold, else assign -1 (non-selective)
+    assigned_latents = torch.where(max_selectivity >= threshold, max_latent_idx, -1)
+
+    # Generate reordered indices
+    ordered_indices = []
+
+    # Iterate over each latent to collect selective neurons
+    for latent in range(num_latents):
+        latent_neurons = (assigned_latents == latent).nonzero(as_tuple=True)[0]
+        ordered_indices.append(latent_neurons)
+
+    # Add non-selective neurons at the end
+    non_selective_neurons = (assigned_latents == -1).nonzero(as_tuple=True)[0]
+    ordered_indices.append(non_selective_neurons)
+
+    # Concatenate indices into a single ordering
+    ordered_indices_mtl_sparse = torch.cat(ordered_indices)
+
+
+
+    # -- Accuracy of mtl_sparse as classifier of A and B --
+
+    # For each neuron, what class (latent) is it assigned to?
+    # assigned_latents is shape (num_neurons_mtl_sparse,)
+    # For samples, neurons_mtl_sparse_flat is (num_samples, num_neurons_mtl_sparse)
+
+    # Only consider selective neurons
+    selective_mask = assigned_latents != -1
+    assigned_classes = assigned_latents[selective_mask]
+    if selective_mask.sum() == 0:
+        print("No selective neurons in mtl_sparse, cannot compute accuracy.")
+    else:
+        # Filter activity to only selective neurons
+        mtl_sparse_activity_selective = neurons_mtl_sparse_flat[:, selective_mask]  # (samples, n_selective_neurons)
+
+        # For each sample, find the most active neuron among selective neurons
+        winner_idx = mtl_sparse_activity_selective.argmax(dim=1)  # shape: (samples,)
+        # Assign the predicted class for each sample (the class the winning neuron codes for)
+        predicted_class = assigned_classes[winner_idx]  # shape: (samples,)
+
+        # True classes: For AB (joint), it's the latent index with 1 in latents_flat for each sample
+        # For one-hot, argmax gives the class index.
+        true_class = latents_flat.argmax(dim=1)  # shape: (samples,)
+
+        # Only keep predictions where the neuron is selective (should always be the case here)
+        accuracy = (predicted_class == true_class).float().mean().item()
+        print(f"mtl_sparse classification accuracy (A+B joint): {accuracy:.4f}")
+
+        # -- If you want accuracy for A and B separately --
+        # A: latents_flat[:, :latent_specs["dims"][0]]
+        # B: latents_flat[:, latent_specs["dims"][0]:]
+
+        # Assign each neuron to A or B, based on its assigned latent index
+        # A_latents = range(latent_specs["dims"][0])
+        # B_latents = range(latent_specs["dims"][0], latent_specs["dims"][0] + latent_specs["dims"][1])
+        A_range = torch.arange(latent_specs["dims"][0], device=assigned_latents.device)
+        B_range = torch.arange(latent_specs["dims"][0], latent_specs["dims"][0]+latent_specs["dims"][1], device=assigned_latents.device)
+
+        # Only use neurons selective for A (if any)
+        A_neuron_mask = (assigned_classes < latent_specs["dims"][0])
+        if A_neuron_mask.any():
+            winner_A_idx = mtl_sparse_activity_selective[:, A_neuron_mask].argmax(dim=1)
+            predicted_class_A = assigned_classes[A_neuron_mask][winner_A_idx]
+            true_class_A = latents_flat[:, :latent_specs["dims"][0]].argmax(dim=1)
+            accuracy_A = (predicted_class_A == true_class_A).float().mean().item()
+            print(f"mtl_sparse classification accuracy (A only): {accuracy_A:.4f}")
+        else:
+            accuracy_A = 0
+            print("No selective neurons for A in mtl_sparse.")
+
+        # Only use neurons selective for B (if any)
+        B_neuron_mask = (assigned_classes >= latent_specs["dims"][0])
+        if B_neuron_mask.any():
+            winner_B_idx = mtl_sparse_activity_selective[:, B_neuron_mask].argmax(dim=1)
+            predicted_class_B = assigned_classes[B_neuron_mask][winner_B_idx] - latent_specs["dims"][0]
+            true_class_B = latents_flat[:, latent_specs["dims"][0]:].argmax(dim=1)
+            accuracy_B = (predicted_class_B == true_class_B).float().mean().item()
+            #print(f"mtl_sparse classification accuracy (B only): {accuracy_B:.4f}")
+        else:
+           accuracy_B = 0
+            #print("No selective neurons for B in mtl_sparse.")
+
+    return ordered_indices_ctx, ordered_indices_mtl, ordered_indices_mtl_dense, ordered_indices_mtl_sparse, selectivity_ctx, selectivity_mtl, selectivity_mtl_dense, selectivity_mtl_sparse, accuracy_A, accuracy_B
