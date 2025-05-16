@@ -251,9 +251,9 @@ latent_specs["dims"] = [5, 5]
 latent_specs["prob_list"] = [1/25 for i in range(5) for j in range(5)]
 
 
-num_cpu = 20
+num_cpu = 2
 trainings = ["interleaved", "blocked"]
-num_seeds = 5
+num_seeds = 1
 seeds = np.arange(num_seeds)
 
 
