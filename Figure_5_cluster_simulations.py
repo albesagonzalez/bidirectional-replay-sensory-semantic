@@ -75,7 +75,7 @@ def test_network(net, input_params, print_rate=1):
   return input, input_episodes, input_latents, net
 
 
-def blokced_interleave(network_parameters, recording_parameters, input_params, latent_specs, training='blocked', seed=42):
+def blokced_interleaved(network_parameters, recording_parameters, input_params, latent_specs, training='blocked', seed=42):
 
     
     if training=='interleaved':
@@ -260,7 +260,7 @@ seeds = np.arange(num_seeds)
 experiment_params = [(network_parameters, recording_parameters, input_params, latent_specs, training, seed) for training in trainings for seed in seeds]
 pool = multiprocessing.Pool(processes=num_cpu)
 
-results_list = pool.map(blokced_interleave, experiment_params)
+results_list = pool.starmap(blokced_interleaved, experiment_params)
 save_results(results_list, filename='fig_5_blokced_interleaved.pickle')
 
 
